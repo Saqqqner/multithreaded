@@ -1,0 +1,5 @@
+multithreaded:
+  size:
+    operations: 35
+    accounts: 10
+    threads: 4
