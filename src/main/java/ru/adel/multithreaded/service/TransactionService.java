@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class TransactionService {
     private final AccountService accountService;
     private final Random random;
+    private final AtomicInteger transactionCount = new AtomicInteger(0);
     @Value("${multithreaded.size.threads}")
     private int threadSize;
     @Value("${multithreaded.size.operations}")
@@ -28,37 +29,49 @@ public class TransactionService {
     }
 
     public void performTransaction() {
-        AtomicInteger transactionCount = new AtomicInteger(0);
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(threadSize);
         for (int i = 0; i < threadSize; i++) {
             executor.scheduleWithFixedDelay(() -> {
                 if (transactionCount.get() < transactionOperationSize) {
-                    Account from = accountService.getRandomAccount();
-                    Account to = accountService.getRandomAccount();
-                    if (from != to) {
-                        Account firstAccount = from.getId().compareTo(to.getId()) < 0 ? from : to;
-                        Account secondAccount = from.getId().compareTo(to.getId()) < 0 ? to : from;
-                        synchronized (firstAccount) {
-                            synchronized (secondAccount) {
-                                int amount = random.nextInt(1000);
-                                if (from.getMoney() >= amount) {
-                                    from.setMoney(from.getMoney() - amount);
-                                    to.setMoney(to.getMoney() + amount);
-                                    log.info("Transaction № {} :  {} -> {} , amount {}", transactionCount.incrementAndGet(), from.getId(), to.getId(), amount);
-                                } else {
-                                    log.warn("Insufficient funds for transaction from {}", from.getId());
-                                }
-                            }
-                        }
-                    }
+                    performSingleTransaction();
                 }
             }, 0, getRandomInterval(), TimeUnit.MILLISECONDS);
         }
+        executor.shutdown();
     }
 
+    public void performSingleTransaction() {
+        Account from = accountService.getRandomAccount();
+        Account to = accountService.getRandomAccount();
+        if (from != to) {
+            Account firstAccount = from.getId().compareTo(to.getId()) < 0 ? from : to;
+            Account secondAccount = from.getId().compareTo(to.getId()) < 0 ? to : from;
+            synchronizedAccounts(firstAccount, secondAccount, transactionCount);
+        }else{
+            log.warn("Cannot perform transaction: 'from' and 'to' accounts are the same.");
+        }
+
+    }
+
+    public void synchronizedAccounts(Account firstAccount, Account secondAccount, AtomicInteger transactionCount) {
+        synchronized (firstAccount) {
+            synchronized (secondAccount) {
+                int amount = random.nextInt(1000);
+                if (firstAccount.getMoney() >= amount) {
+                    firstAccount.setMoney(firstAccount.getMoney() - amount);
+                    secondAccount.setMoney(secondAccount.getMoney() + amount);
+                    log.info("Transaction № {} :  {} -> {} , amount {}",
+                            transactionCount.incrementAndGet(), firstAccount.getId(), secondAccount.getId(), amount);
+                } else {
+                    log.warn("Insufficient funds for transaction from {}",
+                            firstAccount.getId());
+                }
+            }
+        }
+    }
 
     private long getRandomInterval() {
-        return random.nextInt(1001) + 1000;
+        return random.nextLong(1001) + 1000;
     }
 }
 
